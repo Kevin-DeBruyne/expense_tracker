@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { TouchableOpacity } from 'react-native';
 import {
   SafeAreaView,
   View,
@@ -137,14 +138,46 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* <View style={styles.headerRow}>
-        <Button title="➕ Add Expense" onPress={() => setModalVisible(true)} />
-        <Button
+      {/* <View style={styles.headerRow}> */}
+        {/* <Button title="➕ Add Expense" onPress={() => setModalVisible(true)} /> */}
+        {/* <Button
           title={showProcessed ? '⬅️ Show Pending' : '✅ View Processed'}
           onPress={() => setShowProcessed(!showProcessed)}
         />
       </View> */}
-      
+      <View style={styles.toggleRow}>
+  <TouchableOpacity
+    style={[
+      styles.toggleButtonCustom,
+      !showProcessed && styles.activeButton,
+    ]}
+    onPress={() => setShowProcessed(false)}
+  >
+    <Text style={[
+      styles.toggleButtonText,
+      !showProcessed && styles.activeText,
+    ]}>
+      📂 Pending
+    </Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[
+      styles.toggleButtonCustom,
+      showProcessed && styles.activeButton,
+    ]}
+    onPress={() => setShowProcessed(true)}
+  >
+    <Text style={[
+      styles.toggleButtonText,
+      showProcessed && styles.activeText,
+    ]}>
+      ✅ Processed
+    </Text>
+  </TouchableOpacity>
+</View>
+
+
 
 
       <Text style={styles.headerText}>
@@ -295,6 +328,44 @@ const styles = StyleSheet.create({
     backgroundColor: '#2196F3',
     elevation: 5,
   },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    marginVertical: 10,
+    paddingHorizontal: 10,
+  },
+  
+  toggleButton: {
+    flex: 1,
+    marginHorizontal: 5,
+  },
+  
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 10,
+  },
+  
+  toggleButtonCustom: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: '#ccc',
+    borderRadius: 6,
+  },
+  
+  activeButton: {
+    backgroundColor: '#2196F3',
+  },
+  
+  toggleButtonText: {
+    color: '#444',
+    fontWeight: 'bold',
+  },
+  
+  activeText: {
+    color: '#fff',
+  },
+  
   
   
   
