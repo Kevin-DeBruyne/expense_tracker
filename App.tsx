@@ -11,6 +11,9 @@ import {
   Modal,
   Alert,
 } from 'react-native';
+import SmsListener from 'react-native-android-sms-listener';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { useEffect } from 'react';
 
 export default function App() {
   const [pendingExpenses, setPendingExpenses] = useState([
@@ -38,6 +41,62 @@ export default function App() {
   const [splitCount, setSplitCount] = useState({});
   const [modalVisible, setModalVisible] = useState(false);
   const [showProcessed, setShowProcessed] = useState(false);
+  useEffect(() => {
+  let subscription;
+
+  const initSMS = async () => {
+    if (Platform.OS !== 'android') return;
+
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+      {
+        title: 'SMS Permission',
+        message: 'We need permission to read SMS for expense tracking.',
+        buttonPositive: 'OK',
+      }
+    );
+
+    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+      Alert.alert('Permission Denied', 'SMS access is required to track expenses.');
+      return;
+    }
+
+    // ✅ SMS Listener
+    subscription = SmsListener.addListener(message => {
+      // ✅ Add log here
+      console.log("📩 SMS Received:", message.body);
+
+      const text = message.body;
+
+      if (/debited/i.test(text)) {
+        const amountMatch = text.match(/(?:Rs\.?|₹)\s?([\d,]+(?:\.\d{1,2})?)/i);
+
+        if (amountMatch) {
+          const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+          const source = message.originatingAddress || 'Bank';
+          const title = text.length > 40 ? text.slice(0, 40) + '...' : text;
+
+          const newExpense = {
+            id: Date.now().toString(),
+            title,
+            amount,
+            source,
+            date: new Date().toLocaleDateString(),
+          };
+
+          setPendingExpenses(prev => [...prev, newExpense]);
+          Alert.alert("💸 New Expense Detected", `₹${amount} added`);
+        }
+      }
+    });
+  };
+
+  initSMS();
+
+  return () => {
+    if (subscription) subscription.remove();
+  };
+}, []);
 
   const addExpense = () => {
     if (!title || !amount || !source) return alert('Please fill all fields');
