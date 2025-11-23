@@ -36,7 +36,6 @@ public class SmsReceiver extends BroadcastReceiver {
         }
 
         Log.d(TAG, String.format("%s: %s", message.getOriginatingAddress(), message.getMessageBody()));
-        android.widget.Toast.makeText(mContext, "SMS Received: " + body, android.widget.Toast.LENGTH_SHORT).show();
 
         WritableNativeMap receivedMessage = new WritableNativeMap();
 

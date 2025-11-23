@@ -36,10 +36,8 @@ public class SmsListenerModule extends ReactContextBaseJavaModule implements Lif
                 flags
             );
             isReceiverRegistered = true;
-            android.widget.Toast.makeText(getReactApplicationContext(), "SMS Listener Registered", android.widget.Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             e.printStackTrace();
-            android.widget.Toast.makeText(getReactApplicationContext(), "Error registering SMS listener: " + e.getMessage(), android.widget.Toast.LENGTH_LONG).show();
         }
     }
 
@@ -48,7 +46,6 @@ public class SmsListenerModule extends ReactContextBaseJavaModule implements Lif
             try {
                 getReactApplicationContext().unregisterReceiver(receiver);
                 isReceiverRegistered = false;
-                android.widget.Toast.makeText(getReactApplicationContext(), "SMS Listener Unregistered", android.widget.Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -62,7 +59,8 @@ public class SmsListenerModule extends ReactContextBaseJavaModule implements Lif
 
     @Override
     public void onHostPause() {
-        unregisterReceiver(mReceiver);
+        // Do not unregister on pause to keep listening in background
+        // unregisterReceiver(mReceiver);
     }
 
     @Override
