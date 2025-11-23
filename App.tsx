@@ -11,27 +11,12 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import SmsListener from 'react-native-android-sms-listener';
+import SmsListener from './src/utils/SmsListener';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { useEffect } from 'react';
 
 export default function App() {
-  const [pendingExpenses, setPendingExpenses] = useState([
-    {
-      id: '1',
-      title: 'Zomato Order',
-      amount: 450,
-      source: 'Zomato',
-      date: '2025-06-21',
-    },
-    {
-      id: '2',
-      title: 'Petrol Pump',
-      amount: 1000,
-      source: 'HDFC Bank',
-      date: '2025-06-20',
-    },
-  ]);
+  const [pendingExpenses, setPendingExpenses] = useState<any[]>([]);
 
   const [processedExpenses, setProcessedExpenses] = useState([]);
 
@@ -42,61 +27,70 @@ export default function App() {
   const [modalVisible, setModalVisible] = useState(false);
   const [showProcessed, setShowProcessed] = useState(false);
   useEffect(() => {
-  let subscription;
+    let subscription;
 
-  const initSMS = async () => {
-    if (Platform.OS !== 'android') return;
+    const initSMS = async () => {
+      if (Platform.OS !== 'android') return;
 
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
-      {
-        title: 'SMS Permission',
-        message: 'We need permission to read SMS for expense tracking.',
-        buttonPositive: 'OK',
-      }
-    );
-
-    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-      Alert.alert('Permission Denied', 'SMS access is required to track expenses.');
-      return;
-    }
-
-    // ✅ SMS Listener
-    subscription = SmsListener.addListener(message => {
-      // ✅ Add log here
-      console.log("📩 SMS Received:", message.body);
-
-      const text = message.body;
-
-      if (/debited/i.test(text)) {
-        const amountMatch = text.match(/(?:Rs\.?|₹)\s?([\d,]+(?:\.\d{1,2})?)/i);
-
-        if (amountMatch) {
-          const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
-          const source = message.originatingAddress || 'Bank';
-          const title = text.length > 40 ? text.slice(0, 40) + '...' : text;
-
-          const newExpense = {
-            id: Date.now().toString(),
-            title,
-            amount,
-            source,
-            date: new Date().toLocaleDateString(),
-          };
-
-          setPendingExpenses(prev => [...prev, newExpense]);
-          Alert.alert("💸 New Expense Detected", `₹${amount} added`);
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+        {
+          title: 'SMS Permission',
+          message: 'We need permission to read SMS for expense tracking.',
+          buttonPositive: 'OK',
         }
+      );
+
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        Alert.alert('Permission Denied', 'SMS access is required to track expenses.');
+        return;
       }
-    });
-  };
 
-  initSMS();
+      // ✅ SMS Listener
+      subscription = SmsListener.addListener(message => {
+        console.log("📩 SMS Received:", message.body);
+        const text = message.body;
 
-  return () => {
-    if (subscription) subscription.remove();
-  };
-}, []);
+        // Debug Alert
+        // Alert.alert("Debug: SMS Received", text);
+
+        const isDebit = /debited/i.test(text);
+        const isCredit = /credited/i.test(text);
+
+        if (isDebit || isCredit) {
+          const amountMatch = text.match(/(?:Rs\.?|₹)\s?([\d,]+(?:\.\d{1,2})?)/i);
+
+          if (amountMatch) {
+            const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+            const source = message.originatingAddress || 'Bank';
+            const title = text.length > 40 ? text.slice(0, 40) + '...' : text;
+            const type = isCredit ? 'Credit' : 'Debit';
+
+            const newExpense = {
+              id: Date.now().toString(),
+              title: isCredit ? `[Credit] ${title}` : title,
+              amount,
+              source,
+              date: new Date().toLocaleDateString(),
+              type: isCredit ? 'credit' : 'debit', // Optional: if you want to use this later
+            };
+
+            setPendingExpenses(prev => [...prev, newExpense]);
+            Alert.alert("💸 New Transaction Detected", `${type}: ₹${amount} added`);
+          }
+        } else {
+          // Optional: Uncomment to see non-matching messages
+          // Alert.alert("Debug: Ignored", "Message did not contain 'debited'.\nMsg: " + text);
+        }
+      });
+    };
+
+    initSMS();
+
+    return () => {
+      if (subscription) subscription.remove();
+    };
+  }, []);
 
   const addExpense = () => {
     if (!title || !amount || !source) return alert('Please fill all fields');
@@ -151,7 +145,7 @@ export default function App() {
       <Text>Source: {item.source}</Text>
       <Text>Date: {item.date}</Text>
       <Text>Amount: ₹{item.amount.toFixed(2)}</Text>
-  
+
       {!showProcessed && (
         <>
           {/* Split input only */}
@@ -165,8 +159,8 @@ export default function App() {
               setSplitCount(prev => ({ ...prev, [item.id]: text }))
             }
           />
-          
-  
+
+
           {/* All buttons in one row */}
           <View style={styles.actions}>
             <Button title="Split" onPress={() => handleSplit(item)} />
@@ -175,66 +169,66 @@ export default function App() {
           </View>
         </>
       )}
-  
-  {showProcessed && (
-  <>
-    <Text style={{ marginTop: 10, color: '#333' }}>
-    ✅ Processed: {item.processed}
-    </Text>
 
-    <View style={styles.actions}>
-      <Button
-        title="🗑️ Delete"
-        color="red"
-        onPress={() => deleteProcessed(item.id)}
-      />
-    </View>
-  </>
-)}
+      {showProcessed && (
+        <>
+          <Text style={{ marginTop: 10, color: '#333' }}>
+            ✅ Processed: {item.processed}
+          </Text>
+
+          <View style={styles.actions}>
+            <Button
+              title="🗑️ Delete"
+              color="red"
+              onPress={() => deleteProcessed(item.id)}
+            />
+          </View>
+        </>
+      )}
     </View>
   );
-  
+
 
   return (
     <SafeAreaView style={styles.container}>
       {/* <View style={styles.headerRow}> */}
-        {/* <Button title="➕ Add Expense" onPress={() => setModalVisible(true)} /> */}
-        {/* <Button
+      {/* <Button title="➕ Add Expense" onPress={() => setModalVisible(true)} /> */}
+      {/* <Button
           title={showProcessed ? '⬅️ Show Pending' : '✅ View Processed'}
           onPress={() => setShowProcessed(!showProcessed)}
         />
       </View> */}
       <View style={styles.toggleRow}>
-  <TouchableOpacity
-    style={[
-      styles.toggleButtonCustom,
-      !showProcessed && styles.activeButton,
-    ]}
-    onPress={() => setShowProcessed(false)}
-  >
-    <Text style={[
-      styles.toggleButtonText,
-      !showProcessed && styles.activeText,
-    ]}>
-      📂 Pending
-    </Text>
-  </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.toggleButtonCustom,
+            !showProcessed && styles.activeButton,
+          ]}
+          onPress={() => setShowProcessed(false)}
+        >
+          <Text style={[
+            styles.toggleButtonText,
+            !showProcessed && styles.activeText,
+          ]}>
+            📂 Pending
+          </Text>
+        </TouchableOpacity>
 
-  <TouchableOpacity
-    style={[
-      styles.toggleButtonCustom,
-      showProcessed && styles.activeButton,
-    ]}
-    onPress={() => setShowProcessed(true)}
-  >
-    <Text style={[
-      styles.toggleButtonText,
-      showProcessed && styles.activeText,
-    ]}>
-      ✅ Processed
-    </Text>
-  </TouchableOpacity>
-</View>
+        <TouchableOpacity
+          style={[
+            styles.toggleButtonCustom,
+            showProcessed && styles.activeButton,
+          ]}
+          onPress={() => setShowProcessed(true)}
+        >
+          <Text style={[
+            styles.toggleButtonText,
+            showProcessed && styles.activeText,
+          ]}>
+            ✅ Processed
+          </Text>
+        </TouchableOpacity>
+      </View>
 
 
 
@@ -252,48 +246,48 @@ export default function App() {
 
       {/* Modal for Adding Expense */}
       <Modal visible={modalVisible} animationType="slide" transparent>
-  <View style={styles.modalContainer}>
-    <View style={styles.modalBox}>
-      <Text style={styles.modalTitle}>Add New Expense</Text>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Add New Expense</Text>
 
-      <TextInput
-  placeholder="🍔 Expense Name (e.g. Zomato Order)"
-  placeholderTextColor="#888"
-  value={title}
-  onChangeText={setTitle}
-  style={styles.input}
-/>
+            <TextInput
+              placeholder="🍔 Expense Name (e.g. Zomato Order)"
+              placeholderTextColor="#888"
+              value={title}
+              onChangeText={setTitle}
+              style={styles.input}
+            />
 
-<TextInput
-  placeholder="💰 Amount (e.g. 450)"
-  placeholderTextColor="#888"
-  value={amount}
-  onChangeText={setAmount}
-  keyboardType="numeric"
-  style={styles.input}
-/>
+            <TextInput
+              placeholder="💰 Amount (e.g. 450)"
+              placeholderTextColor="#888"
+              value={amount}
+              onChangeText={setAmount}
+              keyboardType="numeric"
+              style={styles.input}
+            />
 
-<TextInput
-  placeholder="🏦 Source (optional, e.g. HDFC, UPI)"
-  placeholderTextColor="#888"
-  value={source}
-  onChangeText={setSource}
-  style={styles.input}
-/>
+            <TextInput
+              placeholder="🏦 Source (optional, e.g. HDFC, UPI)"
+              placeholderTextColor="#888"
+              value={source}
+              onChangeText={setSource}
+              style={styles.input}
+            />
 
 
-      <Text style={styles.autoDate}>📅 Date: {new Date().toLocaleDateString()}</Text>
+            <Text style={styles.autoDate}>📅 Date: {new Date().toLocaleDateString()}</Text>
 
-      <View style={styles.modalButtons}>
-        <Button title="Cancel" color="grey" onPress={() => setModalVisible(false)} />
-        <Button title="Save" onPress={addExpense} />
+            <View style={styles.modalButtons}>
+              <Button title="Cancel" color="grey" onPress={() => setModalVisible(false)} />
+              <Button title="Save" onPress={addExpense} />
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <View style={styles.fabContainer}>
+        <Button title="＋" onPress={() => setModalVisible(true)} color="#2196F3" />
       </View>
-    </View>
-  </View>
-</Modal>
-<View style={styles.fabContainer}>
-  <Button title="＋" onPress={() => setModalVisible(true)} color="#2196F3" />
-</View>
 
     </SafeAreaView>
   );
@@ -393,40 +387,40 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     paddingHorizontal: 10,
   },
-  
+
   toggleButton: {
     flex: 1,
     marginHorizontal: 5,
   },
-  
+
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginVertical: 10,
   },
-  
+
   toggleButtonCustom: {
     paddingVertical: 10,
     paddingHorizontal: 20,
     backgroundColor: '#ccc',
     borderRadius: 6,
   },
-  
+
   activeButton: {
     backgroundColor: '#2196F3',
   },
-  
+
   toggleButtonText: {
     color: '#444',
     fontWeight: 'bold',
   },
-  
+
   activeText: {
     color: '#fff',
   },
-  
-  
-  
-  
-  
+
+
+
+
+
 });
