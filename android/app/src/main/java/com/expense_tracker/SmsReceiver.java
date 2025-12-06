@@ -44,13 +44,14 @@ public class SmsReceiver extends BroadcastReceiver {
         receivedMessage.putDouble("timestamp", message.getTimestampMillis());
 
         mContext
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-            .emit(EVENT, receivedMessage);
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(EVENT, receivedMessage);
     }
 
     private void receiveMultipartMessage(SmsMessage[] messages) {
-        if (messages == null || messages.length == 0) return;
-        
+        if (messages == null || messages.length == 0)
+            return;
+
         SmsMessage sms = messages[0];
         String body;
 
@@ -70,7 +71,7 @@ public class SmsReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent.getAction().equals(Telephony.Sms.Intents.SMS_RECEIVED_ACTION)) {
-             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 receiveMultipartMessage(Telephony.Sms.Intents.getMessagesFromIntent(intent));
                 return;
             }

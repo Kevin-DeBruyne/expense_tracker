@@ -22,19 +22,19 @@ public class SmsListenerModule extends ReactContextBaseJavaModule implements Lif
     }
 
     private void registerReceiverIfNecessary(BroadcastReceiver receiver) {
-        if (isReceiverRegistered) return;
+        if (isReceiverRegistered)
+            return;
 
         try {
             int flags = 0;
             if (Build.VERSION.SDK_INT >= 34) { // Android 14
                 flags = Context.RECEIVER_EXPORTED;
             }
-            
+
             getReactApplicationContext().registerReceiver(
-                receiver,
-                new IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION),
-                flags
-            );
+                    receiver,
+                    new IntentFilter(Telephony.Sms.Intents.SMS_RECEIVED_ACTION),
+                    flags);
             isReceiverRegistered = true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -66,6 +66,37 @@ public class SmsListenerModule extends ReactContextBaseJavaModule implements Lif
     @Override
     public void onHostDestroy() {
         unregisterReceiver(mReceiver);
+    }
+
+    @com.facebook.react.bridge.ReactMethod
+    public void listSms(double minDate, com.facebook.react.bridge.Promise promise) {
+        try {
+            com.facebook.react.bridge.WritableArray result = com.facebook.react.bridge.Arguments.createArray();
+            android.content.ContentResolver cr = getReactApplicationContext().getContentResolver();
+
+            // Query inbox
+            android.database.Cursor cursor = cr.query(
+                    Telephony.Sms.Inbox.CONTENT_URI,
+                    new String[] { Telephony.Sms.BODY, Telephony.Sms.ADDRESS, Telephony.Sms.DATE },
+                    Telephony.Sms.DATE + " > ?",
+                    new String[] { String.valueOf((long) minDate) },
+                    Telephony.Sms.DATE + " ASC");
+
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    com.facebook.react.bridge.WritableMap map = com.facebook.react.bridge.Arguments.createMap();
+                    map.putString("body", cursor.getString(0));
+                    map.putString("address", cursor.getString(1));
+                    map.putDouble("timestamp", cursor.getLong(2));
+                    result.pushMap(map);
+                }
+                cursor.close();
+            }
+
+            promise.resolve(result);
+        } catch (Exception e) {
+            promise.reject("SMS_READ_ERROR", e);
+        }
     }
 
     @Override
