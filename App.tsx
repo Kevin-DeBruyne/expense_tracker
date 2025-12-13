@@ -12,6 +12,10 @@ import {
   Alert,
 } from 'react-native';
 import SmsListener from './src/utils/SmsListener';
+import { parseSmsBody } from './src/utils/smsParser';
+import { analyzeSmsWithGemini } from './src/services/GeminiService';
+import { syncMissedSms, updateLastSyncTimestamp } from './src/services/SmsSyncService';
+import { StorageService } from './src/services/StorageService';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { useEffect } from 'react';
 
@@ -26,61 +30,118 @@ export default function App() {
   const [splitCount, setSplitCount] = useState({});
   const [modalVisible, setModalVisible] = useState(false);
   const [showProcessed, setShowProcessed] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  // 1. Load Data on Mount
+  useEffect(() => {
+    const loadData = async () => {
+      const pending = await StorageService.loadPending();
+      const processed = await StorageService.loadProcessed();
+      setPendingExpenses(pending);
+      setProcessedExpenses(processed);
+      setDataLoaded(true);
+    };
+    loadData();
+  }, []);
+
+  // 2. Save Data on Change
+  useEffect(() => {
+    if (dataLoaded) {
+      StorageService.savePending(pendingExpenses);
+    }
+  }, [pendingExpenses, dataLoaded]);
+
+  useEffect(() => {
+    if (dataLoaded) {
+      StorageService.saveProcessed(processedExpenses);
+    }
+  }, [processedExpenses, dataLoaded]);
+
   useEffect(() => {
     let subscription;
 
     const initSMS = async () => {
       if (Platform.OS !== 'android') return;
 
-      const granted = await PermissionsAndroid.request(
+      const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
-        {
-          title: 'SMS Permission',
-          message: 'We need permission to read SMS for expense tracking.',
-          buttonPositive: 'OK',
-        }
-      );
+        PermissionsAndroid.PERMISSIONS.READ_SMS // Added READ permission
+      ]);
 
-      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-        Alert.alert('Permission Denied', 'SMS access is required to track expenses.');
+      if (
+        granted[PermissionsAndroid.PERMISSIONS.RECEIVE_SMS] !== PermissionsAndroid.RESULTS.GRANTED ||
+        granted[PermissionsAndroid.PERMISSIONS.READ_SMS] !== PermissionsAndroid.RESULTS.GRANTED
+      ) {
+        Alert.alert('Permission Denied', 'SMS access is required.');
         return;
       }
 
+      // ✅ Sync Missed SMS
+      await syncMissedSms((newExpense) => {
+        setPendingExpenses(prev => {
+          // Avoid duplicates
+          if (prev.some(e => e.id === newExpense.id)) return prev;
+          return [...prev, newExpense];
+        });
+      });
+
       // ✅ SMS Listener
-      subscription = SmsListener.addListener(message => {
+      subscription = SmsListener.addListener((message: any) => {
         console.log("📩 SMS Received:", message.body);
         const text = message.body;
 
-        // Debug Alert
-        // Alert.alert("Debug: SMS Received", text);
-
         const isDebit = /debited/i.test(text);
-        const isCredit = /credited/i.test(text);
 
-        if (isDebit || isCredit) {
-          const amountMatch = text.match(/(?:Rs\.?|₹)\s?([\d,]+(?:\.\d{1,2})?)/i);
+        if (isDebit) {
+          // Fire and Forget / Async handling
+          (async () => {
+            let title = '';
+            let amount = 0;
+            let type = 'debit';
+            let geminiResult = null;
 
-          if (amountMatch) {
-            const amount = parseFloat(amountMatch[1].replace(/,/g, ''));
-            const source = message.originatingAddress || 'Bank';
-            const title = text.length > 40 ? text.slice(0, 40) + '...' : text;
-            const type = isCredit ? 'Credit' : 'Debit';
+            // 1. Try Gemini First
+            try {
+              geminiResult = await analyzeSmsWithGemini(text);
+              if (geminiResult && geminiResult.amount > 0) {
+                console.log("✨ Gemini Analysis:", geminiResult);
+                title = geminiResult.merchant;
+                amount = geminiResult.amount;
+                // Use Gemini's type if available, ensuring it's debit for now based on outer check
+                // or trust Gemini entirely if we remove the outer check later.
+              }
+            } catch (e) {
+              console.log("Gemini failed, falling back", e);
+            }
 
-            const newExpense = {
-              id: Date.now().toString(),
-              title: isCredit ? `[Credit] ${title}` : title,
-              amount,
-              source,
-              date: new Date().toLocaleDateString(),
-              type: isCredit ? 'credit' : 'debit', // Optional: if you want to use this later
-            };
+            // 2. Fallback to Local Regex if Gemini failed
+            if (!amount) {
+              const localResult = parseSmsBody(text, message.originatingAddress);
+              if (localResult.amount && localResult.amount > 0) {
+                title = localResult.title;
+                amount = localResult.amount;
+              }
+            }
 
-            setPendingExpenses(prev => [...prev, newExpense]);
-            Alert.alert("💸 New Transaction Detected", `${type}: ₹${amount} added`);
-          }
-        } else {
-          // Optional: Uncomment to see non-matching messages
-          // Alert.alert("Debug: Ignored", "Message did not contain 'debited'.\nMsg: " + text);
+            if (amount > 0) {
+              const newExpense = {
+                id: Date.now().toString(),
+                title: title,
+                amount: amount,
+                source: message.originatingAddress || 'Bank',
+                date: new Date().toLocaleDateString(),
+                type: type,
+              };
+
+              setPendingExpenses((prev: any[]) => [...prev, newExpense]);
+
+              const alertTitle = geminiResult ? "✨ AI Transaction Detected" : "💸 Transaction Detected";
+              Alert.alert(alertTitle, `Debit: ₹${amount} added\n(${title})`);
+
+              // ✅ Mark as processed so SyncService doesn't fetch it again
+              updateLastSyncTimestamp(Date.now());
+            }
+          })();
         }
       });
     };
@@ -93,7 +154,7 @@ export default function App() {
   }, []);
 
   const addExpense = () => {
-    if (!title || !amount || !source) return alert('Please fill all fields');
+    if (!title || !amount || !source) return Alert.alert('Error', 'Please fill all fields');
 
     const newExpense = {
       id: Date.now().toString(),
