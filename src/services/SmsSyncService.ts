@@ -1,7 +1,8 @@
-import { NativeModules, Platform, PermissionsAndroid } from 'react-native';
+import { NativeModules, Platform, PermissionsAndroid, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { analyzeSmsWithGemini } from './GeminiService';
 import { parseSmsBody } from '../utils/smsParser';
+import { StorageService } from './StorageService';
 
 const { SmsListenerPackage } = NativeModules;
 const LAST_SYNC_KEY = 'last_sms_sync_timestamp';
@@ -47,11 +48,13 @@ export const syncMissedSms = async (
             const text = msg.body;
 
             // Ignore Credit messages early if we only want debits
-            if (!/debited/i.test(text)) continue;
+            // REMOVED FILTER: Passing all messages to Gemini as per user request
+            // if (!/debited/i.test(text)) continue;
 
             let title = '';
             let amount = 0;
             let type = 'debit';
+            let category = 'Uncategorized';
             let isGemini = false;
 
             // Try Gemini
@@ -60,10 +63,24 @@ export const syncMissedSms = async (
                 if (geminiResult && geminiResult.amount > 0) {
                     title = geminiResult.merchant;
                     amount = geminiResult.amount;
+                    type = geminiResult.type; // Capture type from AI
+                    if (geminiResult.category) category = geminiResult.category;
                     isGemini = true;
                 }
-            } catch (e) {
+
+                // 🧠 SMART CATEGORIZATION: Check history
+                const historicalCategory = await StorageService.getCategoryForMerchant(title);
+                if (historicalCategory) {
+                    console.log(`🧠 Smart Cat: Overriding '${category}' with history '${historicalCategory}' for '${title}'`);
+                    category = historicalCategory;
+                }
+
+            } catch (e: any) {
                 console.log("Gemini Sync Error", e);
+                if (e.message === 'RATE_LIMIT_EXCEEDED') {
+                    Alert.alert("Quota Exceeded", "You have hit the Gemini API free tier limit. Sync paused. Try again later.");
+                    break; // STOP SYNCING
+                }
             }
 
             // Fallback
@@ -75,15 +92,20 @@ export const syncMissedSms = async (
                 }
             }
 
-            // Add Expense
-            if (amount > 0) {
+            // Add Expense (Filter: Debits Only)
+            if (amount > 0 && type === 'debit') {
+                const dateObj = new Date(msg.timestamp);
                 const newExpense = {
                     id: `sms-${msg.timestamp}-${amount}`, // Unique ID based on timestamp
-                    title: isGemini ? `[AI] ${title}` : title, // Optional marker
+                    title: isGemini ? `${title}` : title, // Optional marker
                     amount: amount,
                     source: msg.address || 'Bank',
-                    date: new Date(msg.timestamp).toLocaleDateString(),
+                    date: dateObj.toLocaleDateString(),
+                    time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     type: type,
+                    category: category,
+                    originalBody: text, // Store original text for future enhancement
+                    requiresEnhancement: !isGemini, // Flag if Gemini failed (fallback used)
                 };
                 onExpenseFound(newExpense);
             }
@@ -108,5 +130,15 @@ export const updateLastSyncTimestamp = async (timestamp: number) => {
         }
     } catch (e) {
         console.error("Failed to update sync timestamp", e);
+    }
+};
+
+export const rewindSyncTimestamp = async (minutes: number = 60) => {
+    try {
+        const rewindTime = Date.now() - (minutes * 60 * 1000);
+        await AsyncStorage.setItem(LAST_SYNC_KEY, rewindTime.toString());
+        console.log(`SMS Sync Timestamp rewound by ${minutes} minutes`);
+    } catch (e) {
+        console.error("Failed to rewind sync timestamp", e);
     }
 };
